@@ -1,22 +1,22 @@
 use crate::{
+    TransformVisitor,
     shared::{
         constants::{
-            get_prop_alias, ALIASES, CHILD_PROPERTIES, DELEGATED_EVENTS, PROPERTIES, SVGNAMESPACE,
-            SVG_ELEMENTS, VOID_ELEMENTS,
+            ALIASES, CHILD_PROPERTIES, DELEGATED_EVENTS, PROPERTIES, SVG_ELEMENTS, SVGNAMESPACE,
+            VOID_ELEMENTS, get_prop_alias,
         },
         structs::{DynamicAttr, ProcessSpreadsInfo, TemplateInstantiation},
-        transform::{is_component, TransformInfo},
+        transform::{TransformInfo, is_component},
         utils::{
-            can_native_spread, check_length, convert_jsx_identifier, escape_backticks, escape_html,
-            filter_children, get_tag_name, is_l_val, is_static_expr, lit_to_string,
-            to_property_name, trim_whitespace, wrapped_by_text, RESERVED_NAME_SPACES,
+            RESERVED_NAME_SPACES, can_native_spread, check_length, convert_jsx_identifier,
+            escape_backticks, escape_html, filter_children, get_tag_name, is_l_val, is_static_expr,
+            lit_to_string, to_property_name, trim_whitespace, wrapped_by_text,
         },
     },
-    TransformVisitor,
 };
 use regex::Regex;
 use swc_core::{
-    common::{comments::Comments, DUMMY_SP},
+    common::{DUMMY_SP, comments::Comments},
     ecma::ast::*,
     ecma::{minifier::eval::EvalResult, utils::quote_ident},
 };
@@ -43,7 +43,7 @@ where
         let void_tag = VOID_ELEMENTS.contains(&tag_name.as_str());
         let is_custom_element = tag_name.contains('-');
         let mut results = TemplateInstantiation {
-            template: format!("<{}", tag_name),
+            template: format!("<{tag_name}"),
             tag_name: tag_name.clone(),
             is_svg: wrap_svg,
             is_void: void_tag,
@@ -80,11 +80,11 @@ where
                 }
                 results.to_be_closed = Some(v)
             } else {
-                results.to_be_closed = info.to_be_closed.clone();
+                results.to_be_closed.clone_from(&info.to_be_closed);
             }
             self.transform_children(&node, &mut results);
             if to_be_closed {
-                results.template += &format!("</{}>", tag_name);
+                results.template += &format!("</{tag_name}>");
             }
         }
         if wrap_svg {
@@ -135,7 +135,7 @@ where
                                     expr: Box::new(Expr::Lit(Lit::Str(value.into()))),
                                 },
                             ],
-                            type_args: None,
+                            ..Default::default()
                         });
                     }
                     Lit::Null(_) => {
@@ -154,13 +154,13 @@ where
                                 spread: None,
                                 expr: name,
                             }],
-                            type_args: None,
+                            ..Default::default()
                         });
                     }
                     _ => {}
                 },
                 Expr::Ident(id) => {
-                    if id.sym.to_string() == "undefined" {
+                    if id.sym == "undefined" {
                         return Expr::Call(CallExpr {
                             span: DUMMY_SP,
                             callee: Callee::Expr(Box::new(Expr::Member(MemberExpr {
@@ -176,7 +176,7 @@ where
                                 spread: None,
                                 expr: name,
                             }],
-                            type_args: None,
+                            ..Default::default()
                         });
                     }
                 }
@@ -211,7 +211,7 @@ where
                             expr: Box::new(options.prev_id.clone().unwrap_or(value.clone())),
                         },
                     ],
-                    type_args: None,
+                    ..Default::default()
                 })),
                 alt: Box::new(Expr::Call(CallExpr {
                     span: DUMMY_SP,
@@ -228,7 +228,7 @@ where
                         spread: None,
                         expr: name,
                     }],
-                    type_args: None,
+                    ..Default::default()
                 })),
             });
         }
@@ -267,7 +267,7 @@ where
                         }),
                     },
                 ],
-                type_args: None,
+                ..Default::default()
             });
         }
 
@@ -305,7 +305,7 @@ where
                         ]
                     },
                 ),
-                type_args: None,
+                ..Default::default()
             });
         }
 
@@ -325,7 +325,7 @@ where
                         expr: Box::new(value.clone()),
                     },
                 ],
-                type_args: None,
+                ..Default::default()
             });
         }
 
@@ -365,7 +365,7 @@ where
                         ]
                     },
                 ),
-                type_args: None,
+                ..Default::default()
             });
         }
 
@@ -445,7 +445,7 @@ where
                         expr: Box::new(value.clone()),
                     },
                 ],
-                type_args: None,
+                ..Default::default()
             })
         } else {
             Expr::Call(CallExpr {
@@ -467,7 +467,7 @@ where
                         expr: Box::new(value.clone()),
                     },
                 ],
-                type_args: None,
+                ..Default::default()
             })
         }
     }
@@ -534,13 +534,11 @@ where
                     if let Some(JSXAttrValue::JSXExprContainer(JSXExprContainer {
                         expr: JSXExpr::Expr(expr),
                         span
-                    })) = &attr.value {
-                        if let Expr::Object(ObjectLit {ref props, .. }) = **expr {
-                            if !props.iter().any(|p| matches!(p, PropOrSpread::Spread(_))) {
+                    })) = &attr.value
+                        && let Expr::Object(ObjectLit {ref props, .. }) = **expr
+                            && !props.iter().any(|p| matches!(p, PropOrSpread::Spread(_))) {
                                 return Some((i, props.clone(), *span));
                             }
-                        }
-                    }
                     None
                 },
                 _ => None
@@ -549,13 +547,14 @@ where
         if let Some((style_idx, mut props, span)) = style_props {
             let mut i = 0usize;
             props.retain(|prop| {
-                let mut handle = |name: Ident, value: Expr| {
+                let mut handle = |name: IdentName, value: Expr| {
                     i += 1;
                     attributes.insert(
                         style_idx + i,
                         JSXAttrOrSpread::JSXAttr(JSXAttr {
                             span: DUMMY_SP,
                             name: JSXAttrName::JSXNamespacedName(JSXNamespacedName {
+                                span,
                                 ns: quote_ident!("style"),
                                 name,
                             }),
@@ -569,7 +568,9 @@ where
                 };
                 if let PropOrSpread::Prop(p) = prop {
                     return match **p {
-                        Prop::Shorthand(ref id) => handle(id.clone(), Expr::Ident(id.clone())),
+                        Prop::Shorthand(ref id) => {
+                            handle(id.clone().into(), Expr::Ident(id.clone()))
+                        }
                         Prop::KeyValue(ref kv) => match kv.key {
                             PropName::Ident(ref id) => handle(id.clone(), *kv.value.clone()),
                             PropName::Str(ref s) => {
@@ -603,32 +604,26 @@ where
         // preprocess classList
         let class_list_props = attributes.iter().enumerate().find_map(|(i, a)| match a {
             JSXAttrOrSpread::JSXAttr(attr) => {
-                if let JSXAttrName::Ident(name) = &attr.name {
-                    if &name.sym == "classList" {
-                        if let Some(JSXAttrValue::JSXExprContainer(JSXExprContainer {
-                            expr: JSXExpr::Expr(expr),
-                            span,
-                        })) = &attr.value
-                        {
-                            if let Expr::Object(ObjectLit { ref props, .. }) = **expr {
-                                if !props.iter().any(|p| match p {
-                                    PropOrSpread::Spread(_) => true,
-                                    PropOrSpread::Prop(b) => match &**b {
-                                        Prop::KeyValue(kv) => match &kv.key {
-                                            PropName::Computed(_) => true,
-                                            PropName::Str(s) => {
-                                                s.value.contains(' ') || s.value.contains(':')
-                                            }
-                                            _ => false,
-                                        },
-                                        _ => false,
-                                    },
-                                }) {
-                                    return Some((i, props.clone(), *span));
-                                }
-                            }
-                        }
-                    }
+                if let JSXAttrName::Ident(name) = &attr.name
+                    && &name.sym == "classList"
+                    && let Some(JSXAttrValue::JSXExprContainer(JSXExprContainer {
+                        expr: JSXExpr::Expr(expr),
+                        span,
+                    })) = &attr.value
+                    && let Expr::Object(ObjectLit { ref props, .. }) = **expr
+                    && !props.iter().any(|p| match p {
+                        PropOrSpread::Spread(_) => true,
+                        PropOrSpread::Prop(b) => match &**b {
+                            Prop::KeyValue(kv) => match &kv.key {
+                                PropName::Computed(_) => true,
+                                PropName::Str(s) => s.value.contains(' ') || s.value.contains(':'),
+                                _ => false,
+                            },
+                            _ => false,
+                        },
+                    })
+                {
+                    return Some((i, props.clone(), *span));
                 }
                 None
             }
@@ -638,7 +633,7 @@ where
         if let Some((class_list_idx, mut props, span)) = class_list_props {
             let mut i = 0usize;
             props.retain(|prop| {
-                let mut handle = |name: Ident, value: Expr| {
+                let mut handle = |name: IdentName, value: Expr| {
                     i += 1;
                     match self.evaluator.as_mut().unwrap().eval(&value) {
                         Some(EvalResult::Lit(_)) => {
@@ -659,6 +654,7 @@ where
                                 JSXAttrOrSpread::JSXAttr(JSXAttr {
                                     span: DUMMY_SP,
                                     name: JSXAttrName::JSXNamespacedName(JSXNamespacedName {
+                                        span,
                                         ns: quote_ident!("class"),
                                         name,
                                     }),
@@ -676,7 +672,9 @@ where
 
                 if let PropOrSpread::Prop(p) = prop {
                     return match **p {
-                        Prop::Shorthand(ref id) => handle(id.clone(), Expr::Ident(id.clone())),
+                        Prop::Shorthand(ref id) => {
+                            handle(id.clone().into(), Expr::Ident(id.clone()))
+                        }
                         Prop::KeyValue(ref kv) => match kv.key {
                             PropName::Ident(ref id) => handle(id.clone(), *kv.value.clone()),
                             PropName::Str(ref s) => {
@@ -711,12 +709,12 @@ where
             .iter()
             .enumerate()
             .filter(|(_, a)| {
-                if let JSXAttrOrSpread::JSXAttr(attr) = a {
-                    if let JSXAttrName::Ident(ref id) = attr.name {
-                        let name = id.sym.as_ref().to_string();
-                        if name == "class" || name == "className" {
-                            return true;
-                        }
+                if let JSXAttrOrSpread::JSXAttr(attr) = a
+                    && let JSXAttrName::Ident(ref id) = attr.name
+                {
+                    let name = id.sym.as_ref().to_string();
+                    if name == "class" || name == "className" {
+                        return true;
                     }
                 }
                 false
@@ -735,38 +733,38 @@ where
             }];
             for (i, (idx, attr)) in class_attributes.iter().enumerate() {
                 let is_last = i == class_attributes.len() - 1;
-                if let JSXAttrOrSpread::JSXAttr(attr) = attr {
-                    if let Some(ref v) = attr.value {
-                        if let JSXAttrValue::JSXExprContainer(expr) = v {
-                            if let JSXExpr::Expr(ref ex) = expr.expr {
-                                values.push(Expr::Bin(BinExpr {
-                                    span: DUMMY_SP,
-                                    op: BinaryOp::LogicalOr,
-                                    left: ex.clone(),
-                                    right: Box::new(Expr::Lit(Lit::Str("".into()))),
-                                }));
-                            }
-                            quasis.push(TplElement {
+                if let JSXAttrOrSpread::JSXAttr(attr) = attr
+                    && let Some(ref v) = attr.value
+                {
+                    if let JSXAttrValue::JSXExprContainer(expr) = v {
+                        if let JSXExpr::Expr(ref ex) = expr.expr {
+                            values.push(Expr::Bin(BinExpr {
                                 span: DUMMY_SP,
-                                tail: true,
-                                cooked: None,
-                                raw: (if is_last { "" } else { " " }).into(),
-                            });
-                        } else if let JSXAttrValue::Lit(lit) = v {
-                            let prev = quasis.pop();
-                            let raw = format!(
-                                "{}{}{}",
-                                prev.map_or("".to_string(), |prev| prev.raw.to_string()),
-                                lit_to_string(lit),
-                                if is_last { "" } else { " " }
-                            );
-                            quasis.push(TplElement {
-                                span: DUMMY_SP,
-                                tail: true,
-                                cooked: None,
-                                raw: raw.into(),
-                            })
+                                op: BinaryOp::LogicalOr,
+                                left: ex.clone(),
+                                right: Box::new(Expr::Lit(Lit::Str("".into()))),
+                            }));
                         }
+                        quasis.push(TplElement {
+                            span: DUMMY_SP,
+                            tail: true,
+                            cooked: None,
+                            raw: (if is_last { "" } else { " " }).into(),
+                        });
+                    } else if let JSXAttrValue::Lit(lit) = v {
+                        let prev = quasis.pop();
+                        let raw = format!(
+                            "{}{}{}",
+                            prev.map_or("".to_string(), |prev| prev.raw.to_string()),
+                            lit_to_string(lit),
+                            if is_last { "" } else { " " }
+                        );
+                        quasis.push(TplElement {
+                            span: DUMMY_SP,
+                            tail: true,
+                            cooked: None,
+                            raw: raw.into(),
+                        })
                     }
                 }
                 if i > 0 {
@@ -811,19 +809,18 @@ where
                 }
             };
 
-            if !key.starts_with("use:") {
-                if let Some(JSXAttrValue::JSXExprContainer(JSXExprContainer {
+            if !key.starts_with("use:")
+                && let Some(JSXAttrValue::JSXExprContainer(JSXExprContainer {
                     expr: JSXExpr::Expr(ref expr),
                     ..
                 })) = attribute.value
-                {
-                    match self.evaluator.as_mut().unwrap().eval(expr) {
-                        Some(EvalResult::Lit(lit)) if matches!(lit, Lit::Str(_) | Lit::Num(_)) => {
-                            attribute.value = Some(JSXAttrValue::Lit(lit))
-                        }
-                        _ => {}
-                    };
-                }
+            {
+                match self.evaluator.as_mut().unwrap().eval(expr) {
+                    Some(EvalResult::Lit(lit)) if matches!(lit, Lit::Str(_) | Lit::Num(_)) => {
+                        attribute.value = Some(JSXAttrValue::Lit(lit))
+                    }
+                    _ => {}
+                };
             }
 
             if let Some(ref mut value) = attribute.value {
@@ -848,7 +845,7 @@ where
             }
 
             if let Some(JSXAttrValue::JSXExprContainer(JSXExprContainer {
-                expr: JSXExpr::Expr(ref mut expr),
+                expr: JSXExpr::Expr(expr),
                 span,
             })) = &mut attribute.value
             {
@@ -920,7 +917,7 @@ where
                                                 expr: Box::new(Expr::Ident(el_ident.clone())),
                                             },
                                         ],
-                                        type_args: None,
+                                        ..Default::default()
                                     })),
                                     alt: Box::new(Expr::Assign(AssignExpr {
                                         span: DUMMY_SP,
@@ -953,7 +950,7 @@ where
                                             expr: Box::new(Expr::Ident(el_ident)),
                                         },
                                     ],
-                                    type_args: None,
+                                    ..Default::default()
                                 }),
                             );
                         } else if matches!(**expr, Expr::Call(_)) {
@@ -1001,7 +998,7 @@ where
                                                 expr: Box::new(Expr::Ident(el_ident.clone())),
                                             },
                                         ],
-                                        type_args: None,
+                                        ..Default::default()
                                     })),
                                 }),
                             );
@@ -1018,10 +1015,9 @@ where
                                     args: vec![
                                         ExprOrSpread {
                                             spread: None,
-                                            expr: Box::new(Expr::Ident(quote_ident!(name
-                                                .name
-                                                .sym
-                                                .to_string()))),
+                                            expr: Box::new(Expr::Ident(
+                                                quote_ident!(name.name.sym.to_string()).into(),
+                                            )),
                                         },
                                         ExprOrSpread {
                                             spread: None,
@@ -1039,10 +1035,11 @@ where
                                                 is_generator: false,
                                                 type_params: None,
                                                 return_type: None,
+                                                ..Default::default()
                                             })),
                                         },
                                     ],
-                                    type_args: None,
+                                    ..Default::default()
                                 }),
                             );
                         }
@@ -1083,7 +1080,7 @@ where
                                 } else {
                                     listener_options
                                 },
-                                type_args: None,
+                                ..Default::default()
                             }))
                         } else if self.config.delegate_events
                             && (DELEGATED_EVENTS.contains(&ev.as_ref())
@@ -1187,7 +1184,7 @@ where
                                                 expr: Box::new(Expr::Lit(Lit::Bool(true.into()))),
                                             },
                                         ],
-                                        type_args: None,
+                                        ..Default::default()
                                     }),
                                 )
                             }
@@ -1199,7 +1196,7 @@ where
                                     handler = Expr::Arrow(ArrowExpr {
                                         span: DUMMY_SP,
                                         params: vec![Pat::Ident(BindingIdent {
-                                            id: quote_ident!("e"),
+                                            id: quote_ident!("e").into(),
                                             type_ann: None,
                                         })],
                                         body: Box::new(BlockStmtOrExpr::Expr(Box::new(
@@ -1218,18 +1215,15 @@ where
                                                     },
                                                     ExprOrSpread {
                                                         spread: None,
-                                                        expr: Box::new(Expr::Ident(quote_ident!(
-                                                            "e"
-                                                        ))),
+                                                        expr: Box::new(Expr::Ident(
+                                                            quote_ident!("e").into(),
+                                                        )),
                                                     },
                                                 ],
-                                                type_args: None,
+                                                ..Default::default()
                                             }),
                                         ))),
-                                        is_async: false,
-                                        is_generator: false,
-                                        type_params: None,
-                                        return_type: None,
+                                        ..Default::default()
                                     })
                                 } else {
                                     handler = *arr_lit.elems[0].clone().unwrap().expr;
@@ -1255,7 +1249,7 @@ where
                                                 expr: Box::new(handler),
                                             },
                                         ],
-                                        type_args: None,
+                                        ..Default::default()
                                     }),
                                 );
                             } else if matches!(**expr, Expr::Fn(_) | Expr::Arrow(_)) || resolveable
@@ -1281,7 +1275,7 @@ where
                                                 expr: expr.clone(),
                                             },
                                         ],
-                                        type_args: None,
+                                        ..Default::default()
                                     }),
                                 );
                             } else {
@@ -1306,7 +1300,7 @@ where
                                                 expr: expr.clone(),
                                             },
                                         ],
-                                        type_args: None,
+                                        ..Default::default()
                                     }),
                                 );
                             }
@@ -1347,13 +1341,10 @@ where
                                                 },
                                             ),
                                         ))),
-                                        is_async: false,
-                                        is_generator: false,
-                                        type_params: None,
-                                        return_type: None,
+                                        ..Default::default()
                                     })),
                                 }],
-                                type_args: None,
+                                ..Default::default()
                             }));
                             continue;
                         }
@@ -1450,7 +1441,7 @@ where
                         if !is_svg {
                             key = key.to_lowercase();
                         }
-                        results.template += &format!(" {}", key);
+                        results.template += &format!(" {key}");
 
                         if let Some(value) = value {
                             let mut text = lit_to_string(value);
@@ -1477,10 +1468,8 @@ where
             }
         }
 
-        if !has_children {
-            if let Some(child) = children {
-                node.children.push(child);
-            }
+        if !has_children && let Some(child) = children {
+            node.children.push(child);
         }
 
         if !matches!(spread_expr, Expr::Invalid(_)) {
@@ -1492,23 +1481,20 @@ where
         results.exprs.push(Expr::Assign(AssignExpr {
             span: DUMMY_SP,
             op: AssignOp::Assign,
-            left: AssignTarget::Simple(SimpleAssignTarget::Paren(
-                ParenExpr {
+            left: AssignTarget::Simple(SimpleAssignTarget::Paren(ParenExpr {
+                span: DUMMY_SP,
+                expr: Box::new(Expr::Member(MemberExpr {
                     span: DUMMY_SP,
-                    expr: Box::new(Expr::Member(MemberExpr {
-                        span: DUMMY_SP,
-                        obj: Box::new(Expr::Ident(results.id.clone().unwrap())),
-                        prop: MemberProp::Ident(quote_ident!("_$owner")),
-                    })),
-                },
-            )),
+                    obj: Box::new(Expr::Ident(results.id.clone().unwrap())),
+                    prop: MemberProp::Ident(quote_ident!("_$owner")),
+                })),
+            })),
             right: Box::new(Expr::Call(CallExpr {
                 span: DUMMY_SP,
                 callee: Callee::Expr(Box::new(Expr::Ident(
                     self.register_import_method("getOwner"),
                 ))),
-                args: vec![],
-                type_args: None,
+                ..Default::default()
             })),
         }))
     }
@@ -1556,10 +1542,7 @@ where
                             span: DUMMY_SP,
                             params: vec![],
                             body: Box::new(BlockStmtOrExpr::Expr(Box::new(*el.expr.clone()))),
-                            is_async: false,
-                            is_generator: false,
-                            return_type: None,
-                            type_params: None,
+                            ..Default::default()
                         }));
                     }
                 } else {
@@ -1618,6 +1601,7 @@ where
                                             span: DUMMY_SP,
                                             arg: Some(expr),
                                         })],
+                                        ..Default::default()
                                     }),
                                 },
                             ))));
@@ -1678,7 +1662,7 @@ where
                         expr: Box::new(sp),
                     })
                     .collect(),
-                type_args: None,
+                ..Default::default()
             })
         };
 
@@ -1711,7 +1695,7 @@ where
                         expr: Box::new(Expr::Lit(Lit::Bool(info.has_children.into()))),
                     },
                 ],
-                type_args: None,
+                ..Default::default()
             }),
         )
     }
@@ -1775,7 +1759,7 @@ where
                 let walk = Expr::Member(MemberExpr {
                     span: DUMMY_SP,
                     obj: Box::new(Expr::Ident(temp_path.clone().unwrap())),
-                    prop: MemberProp::Ident(Ident::new(
+                    prop: MemberProp::Ident(IdentName::new(
                         if i == 0 {
                             "firstChild".into()
                         } else {
@@ -1790,16 +1774,12 @@ where
                     init: Some(Box::new(walk)),
                     definite: false,
                 });
-                results
-                    .declarations
-                    .extend(child.declarations.clone().into_iter());
-                results.exprs.extend(child.exprs.clone().into_iter());
-                results.dynamics.extend(child.dynamics.clone().into_iter());
-                results
-                    .post_exprs
-                    .extend(child.post_exprs.clone().into_iter());
+                results.declarations.extend(child.declarations.clone());
+                results.exprs.extend(child.exprs.clone());
+                results.dynamics.extend(child.dynamics.clone());
+                results.post_exprs.extend(child.post_exprs.clone());
                 results.has_custom_element |= child.has_custom_element;
-                temp_path = child.id.clone();
+                temp_path.clone_from(&child.id);
                 next_placeholder = None;
                 i += 1;
             } else if !child.exprs.is_empty() {
@@ -1851,7 +1831,7 @@ where
                                 },
                             ]
                         },
-                        type_args: Default::default(),
+                        ..Default::default()
                     }));
                     temp_path = Some(expr_id);
                 } else if multi {
@@ -1871,7 +1851,7 @@ where
                                 .unwrap_or(Expr::Lit(Lit::Null(Null { span: DUMMY_SP })))
                                 .into(),
                         ],
-                        type_args: Default::default(),
+                        ..Default::default()
                     }));
                 } else {
                     results.exprs.push(Expr::Call(CallExpr {
@@ -1887,7 +1867,7 @@ where
                                 expr: child.exprs[0].clone().into(),
                             },
                         ],
-                        type_args: Default::default(),
+                        ..Default::default()
                     }));
                 }
             } else {
@@ -1904,14 +1884,14 @@ where
         char: &str,
     ) -> (Ident, Option<ExprOrSpread>) {
         let expr_id = self.generate_uid_identifier("el$");
-        results.template += &format!("<!{}>", char);
+        results.template += &format!("<!{char}>");
         results.declarations.push(VarDeclarator {
             span: DUMMY_SP,
             name: Pat::Ident(expr_id.clone().into()),
             init: Some(Box::new(Expr::Member(MemberExpr {
                 span: DUMMY_SP,
                 obj: (Box::new(Expr::Ident(temp_path.clone().unwrap()))),
-                prop: MemberProp::Ident(Ident::new(
+                prop: MemberProp::Ident(IdentName::new(
                     if index == 0 {
                         "firstChild".into()
                     } else {
@@ -1998,7 +1978,7 @@ where
         false
     }
 
-    fn find_last_element(&mut self, children: &Vec<&JSXElementChild>) -> i32 {
+    fn find_last_element(&mut self, children: &[&JSXElementChild]) -> i32 {
         let mut last_element = -1i32;
         for i in (0i32..children.len() as i32).rev() {
             let child = &children[i as usize];

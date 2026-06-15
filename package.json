@@ -1,6 +1,6 @@
 {
     "name": "@moneko/jsx-dom-expressions",
-    "version": "0.6.0",
+    "version": "0.7.2",
     "description": "",
     "author": "",
     "license": "ISC",
@@ -9,7 +9,7 @@
     ],
     "main": "jsx-dom-expressions.wasm",
     "scripts": {
-        "prepublishOnly": "cargo build-wasi && mv ./target/wasm32-wasi/release/jsx_dom_expressions.wasm ./jsx-dom-expressions.wasm"
+        "prepublishOnly": "cargo build-wasip1 && mv ./target/wasm32-wasip1/release/jsx_dom_expressions.wasm ./jsx-dom-expressions.wasm"
     },
     "files": [
         "jsx-dom-expressions.wasm"

@@ -3,9 +3,9 @@ use super::{
     transform::TransformInfo,
     utils::{convert_jsx_identifier, filter_children, jsx_text_to_str},
 };
-use crate::{shared::utils::is_l_val, TransformVisitor};
+use crate::{TransformVisitor, shared::utils::is_l_val};
 use swc_core::{
-    common::{comments::Comments, DUMMY_SP},
+    common::{DUMMY_SP, comments::Comments},
     ecma::{ast::*, utils::quote_ident},
 };
 
@@ -21,12 +21,11 @@ where
         let mut dynamic_spread = false;
         let has_children = !node.children.is_empty();
 
-        if let Expr::Ident(id) = &tag_id {
-            if self.config.built_ins.iter().any(|v| v.as_str() == &id.sym)
-                && id.span.ctxt.as_u32() == 1
-            {
-                tag_id = Expr::Ident(self.register_import_method(&id.sym));
-            }
+        if let Expr::Ident(id) = &tag_id
+            && self.config.built_ins.iter().any(|v| v.as_str() == &id.sym)
+            && id.ctxt.as_u32() == 1
+        {
+            tag_id = Expr::Ident(self.register_import_method(&id.sym));
         }
 
         for attribute in &node.opening.attrs {
@@ -62,10 +61,7 @@ where
                                 span: DUMMY_SP,
                                 params: vec![],
                                 body: Box::new(BlockStmtOrExpr::Expr(Box::new(expr))),
-                                is_async: false,
-                                is_generator: false,
-                                type_params: None,
-                                return_type: None,
+                                ..Default::default()
                             }
                             .into(),
                         }
@@ -137,6 +133,7 @@ where
                                                             ),
                                                             init: Some(Box::new(expr.clone())),
                                                         }],
+                                                        ..Default::default()
                                                     }))),
                                                     Stmt::Expr(ExprStmt {
                                                         span: DUMMY_SP,
@@ -168,31 +165,36 @@ where
                                                                 args: vec![ExprOrSpread {
                                                                     spread: None,
                                                                     expr: Box::new(Expr::Ident(
-                                                                        quote_ident!("r$"),
+                                                                        quote_ident!("r$").into(),
                                                                     )),
                                                                 }],
-                                                                type_args: None,
+                                                                ..Default::default()
                                                             })),
                                                             alt: Box::new(Expr::Assign(
                                                                 AssignExpr {
                                                                     span: DUMMY_SP,
                                                                     op: AssignOp::Assign,
                                                                     left: AssignTarget::Simple(
-                                                                        SimpleAssignTarget::Paren(ParenExpr { span: DUMMY_SP, expr: Box::new(expr) }),
+                                                                        SimpleAssignTarget::Paren(
+                                                                            ParenExpr {
+                                                                                span: DUMMY_SP,
+                                                                                expr: Box::new(
+                                                                                    expr,
+                                                                                ),
+                                                                            },
+                                                                        ),
                                                                     ),
                                                                     right: Box::new(Expr::Ident(
-                                                                        quote_ident!("r$"),
+                                                                        quote_ident!("r$").into(),
                                                                     )),
                                                                 },
                                                             )),
                                                         })),
                                                     }),
                                                 ],
+                                                ..Default::default()
                                             }),
-                                            is_generator: false,
-                                            is_async: false,
-                                            type_params: None,
-                                            return_type: None,
+                                            ..Default::default()
                                         }),
                                     }));
                                 } else if is_function
@@ -229,6 +231,7 @@ where
                                                             ),
                                                             init: Some(Box::new(expr)),
                                                         }],
+                                                        ..Default::default()
                                                     }))),
                                                     Stmt::Expr(ExprStmt {
                                                         span: DUMMY_SP,
@@ -261,19 +264,17 @@ where
                                                                 args: vec![ExprOrSpread {
                                                                     spread: None,
                                                                     expr: Box::new(Expr::Ident(
-                                                                        quote_ident!("r$"),
+                                                                        quote_ident!("r$").into(),
                                                                     )),
                                                                 }],
-                                                                type_args: None,
+                                                                ..Default::default()
                                                             })),
                                                         })),
                                                     }),
                                                 ],
+                                                ..Default::default()
                                             }),
-                                            is_generator: false,
-                                            is_async: false,
-                                            type_params: None,
-                                            return_type: None,
+                                            ..Default::default()
                                         }),
                                     }));
                                 }
@@ -307,6 +308,7 @@ where
                                                 span: DUMMY_SP,
                                                 arg: Some(Box::new(exp)),
                                             })],
+                                            ..Default::default()
                                         }),
                                     }
                                     .into(),
@@ -382,6 +384,7 @@ where
                                                         span: DUMMY_SP,
                                                         arg: Some(ex),
                                                     })],
+                                                    ..Default::default()
                                                 }),
                                             }
                                         } else {
@@ -400,6 +403,7 @@ where
                                             span: DUMMY_SP,
                                             arg: Some(expr),
                                         })],
+                                        ..Default::default()
                                     },
                                 }),
                                 _ => None,
@@ -411,6 +415,7 @@ where
                                     span: DUMMY_SP,
                                     arg: Some(Box::new(expr)),
                                 })],
+                                ..Default::default()
                             }))
                         },
                         type_ann: None,
@@ -445,7 +450,7 @@ where
                 span: DUMMY_SP,
                 callee: Callee::Expr(self.register_import_method("mergeProps").into()),
                 args: props.into_iter().map(|p| p.into()).collect(),
-                type_args: None,
+                ..Default::default()
             })];
         }
 
@@ -462,7 +467,7 @@ where
                         expr: Box::new(v),
                     })
                     .collect(),
-                type_args: None,
+                ..Default::default()
             }
             .into(),
         );
@@ -484,30 +489,29 @@ where
                     arg: ret.map(Box::new),
                 }));
 
-                vec![CallExpr {
-                    span: DUMMY_SP,
-                    callee: Callee::Expr(
-                        ArrowExpr {
-                            span: DUMMY_SP,
-                            params: vec![],
-                            body: Box::new(
-                                BlockStmt {
-                                    span: DUMMY_SP,
-                                    stmts,
-                                }
-                                .into(),
-                            ),
-                            is_async: false,
-                            is_generator: false,
-                            type_params: None,
-                            return_type: None,
-                        }
-                        .into(),
-                    ),
-                    args: vec![],
-                    type_args: None,
-                }
-                .into()]
+                vec![
+                    CallExpr {
+                        span: DUMMY_SP,
+                        callee: Callee::Expr(
+                            ArrowExpr {
+                                span: DUMMY_SP,
+                                params: vec![],
+                                body: Box::new(
+                                    BlockStmt {
+                                        span: DUMMY_SP,
+                                        stmts,
+                                        ..Default::default()
+                                    }
+                                    .into(),
+                                ),
+                                ..Default::default()
+                            }
+                            .into(),
+                        ),
+                        ..Default::default()
+                    }
+                    .into(),
+                ]
             } else {
                 exprs
             },
@@ -537,7 +541,7 @@ where
                 match node {
                     JSXElementChild::JSXText(child) => {
                         let value = jsx_text_to_str(&child.value);
-                        if value.len() > 0 {
+                        if !value.is_empty() {
                             path_nodes.push(node);
                             memo.push(Lit::Str(value.into()).into());
                         }
@@ -558,14 +562,11 @@ where
                             if self.config.generate == "ssr"
                                 && is_filtered_children_plural
                                 && child.dynamic
-                            {
-                                if let Some(Expr::Arrow(ArrowExpr { body, .. })) =
+                                && let Some(Expr::Arrow(ArrowExpr { body, .. })) =
                                     child.exprs.first()
-                                {
-                                    if let BlockStmtOrExpr::Expr(expr) = body.as_ref() {
-                                        child.exprs.insert(0, *expr.clone());
-                                    }
-                                }
+                                && let BlockStmtOrExpr::Expr(expr) = body.as_ref()
+                            {
+                                child.exprs.insert(0, *expr.clone());
                             }
 
                             path_nodes.push(node);
@@ -605,10 +606,7 @@ where
                         span: DUMMY_SP,
                         params: vec![],
                         body: Box::new(BlockStmtOrExpr::Expr(Box::new(first_children))),
-                        is_async: false,
-                        is_generator: false,
-                        type_params: None,
-                        return_type: None,
+                        ..Default::default()
                     }
                     .into(),
                 );
@@ -632,10 +630,7 @@ where
                         }
                         .into(),
                     )),
-                    is_async: false,
-                    is_generator: false,
-                    type_params: None,
-                    return_type: None,
+                    ..Default::default()
                 }
                 .into(),
                 true,
@@ -651,7 +646,7 @@ fn get_component_identifier(node: &JSXElementName) -> Expr {
             Err(_) => Expr::Lit(Lit::Str(ident.sym.to_string().into())),
         },
         JSXElementName::JSXMemberExpr(member) => {
-            let prop = get_component_identifier(&JSXElementName::Ident(member.prop.clone()));
+            let prop = get_component_identifier(&JSXElementName::Ident(member.prop.clone().into()));
             Expr::Member(MemberExpr {
                 span: DUMMY_SP,
                 obj: Box::new(get_component_identifier(&match &member.obj {
@@ -661,7 +656,7 @@ fn get_component_identifier(node: &JSXElementName) -> Expr {
                     }
                 })),
                 prop: match prop {
-                    Expr::Ident(id) => MemberProp::Ident(id),
+                    Expr::Ident(id) => MemberProp::Ident(id.into()),
                     _ => MemberProp::Computed(ComputedPropName {
                         span: DUMMY_SP,
                         expr: Box::new(prop),
